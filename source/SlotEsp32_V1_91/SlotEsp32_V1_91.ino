@@ -1021,6 +1021,11 @@ void showCurveSelection() {
       obdDrawLine(&obd, 25, 50 - (storedVar.carParam[gCarSel].minSpeed / 2), 25 + inThrottlePerc, map(thrOutIntersection, 0, 100, 50, 0), OBD_BLACK, 1);
       obdDrawLine(&obd, 25 + inThrottlePerc, map(thrOutIntersection, 0, 100, 50, 0), 125, map(storedVar.carParam[gCarSel].maxSpeed, 0, 100, 50, 0), OBD_BLACK, 1);
     }
+    else
+    {
+      /* Needed to service the watchdog, to prevent CPU reset */
+      vTaskDelay(10);
+    }
   }
 
   /* Reset encoder */
