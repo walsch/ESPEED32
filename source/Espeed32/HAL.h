@@ -6,7 +6,6 @@
 /*********************************************************************************************************************/
 #include <Wire.h>
 #include <Arduino.h>
-#include <EEPROM.h>
 /*********************************************************************************************************************/
 /*-------------------------------------------------------Macros------------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -64,10 +63,12 @@
 #endif
 
 /******** EEPROM *********/
-#define EEPROM_INIT_WORD  0xFE /*dummy value used to check if user parameters has been written on the EEPROM at least once on VREG sketch (use different onother sketch type) */
-#define ADDR_EEPROM_INIT  0x00 /* address of INITIALization word in the EEPROM */
-#define ADDR_EEPROM_USER  0x04 /* address of user variables in the eeprom (just after initialization word) */
-#define EEPROM_SIZE       512
+/* Deprecated */
+/* No longer used since passing to Preferences.h library to store NVM data */
+//#define EEPROM_INIT_WORD  0xFE /*dummy value used to check if user parameters has been written on the EEPROM at least once on VREG sketch (use different onother sketch type) */
+//#define ADDR_EEPROM_INIT  0x00 /* address of INITIALization word in the EEPROM */
+//#define ADDR_EEPROM_USER  0x04 /* address of user variables in the eeprom (just after initialization word) */
+//#define EEPROM_SIZE       512
 
 /******** OTHERS *********/
 #define KEY_SOUND_MS      50

@@ -10,12 +10,13 @@
 
 #include "half_bridge.h"
 #include "HAL.h"
+#include <Preferences.h>
 
 /*********************************************************************************************************************/
 /*-------------------------------------------------------Macros------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define MENU_ITEMS_COUNT    9   /* Number of items in the menu */
+#define MENU_ITEMS_COUNT    8   /* Number of items in the menu */
 #define MENU_ACCELERATION   0   /* Encoder acceleration when in the main menu */
 #define SEL_ACCELERATION    100 /* Encoder acceleration when selecting parameter value */
 #define ITEM_NO_CALLBACK    0   /* For when a item has no callback */
@@ -66,6 +67,7 @@
 
 #define DRAG_BRAKE_T_FULL     0
 #define DRAG_BRAKE_T_DEC      1
+
 /*********************************************************************************************************************/
 /*-------------------------------------------------Data Structures---------------------------------------------------*/
 /*********************************************************************************************************************/

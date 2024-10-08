@@ -7,8 +7,8 @@
 /*-------------------------------------------------------Macros------------------------------------------------------*/
 /*********************************************************************************************************************/
 #define SW_MAJOR_VERSION 1
-#define SW_MINOR_VERSION 91
-/* Last modified: 01/10/2024 */
+#define SW_MINOR_VERSION 92
+/* Last modified: 07/10/2024 */
 /*********************************************************************************************************************/
 /*-------------------------------------------------Global variables--------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -65,6 +65,10 @@ menu_type mainMenu{
 menu_type carMenu{
   .lines = 3
 };
+
+/* Preferences global instance (for storing NVM data, replace EEPROM library) */
+
+Preferences pref;
 
 static uint32_t lastEncoderInteraction = 0; // tell how long is the encoder untouched, so can avoid keep printing he display menu and save CPU cycles
 
@@ -136,6 +140,7 @@ void Task1code( void * pvParameters ){
   static uint16_t prevFreqPWM=0;
   static   menu_state_enum menuState = ITEM_SELECTION;
   static uint8_t eepromTmp;
+  static uint8_t swMajVer, swMinVer;
 
   escVar.Vin_mV = HAL_ReadVoltageDivider(AN_VIN_DIV, RVIFBL, RVIFBH); /* Read VIN */
   gCarSel = storedVar.carSelNumber;                                   // update global variable telling which car model is actually selected
@@ -147,41 +152,60 @@ void Task1code( void * pvParameters ){
       break;
 
     case INIT:
-      /* Get EEPROM value */
-      EEPROM.get(ADDR_EEPROM_INIT, eepromTmp);
-      /* If EEPROM with user parameter (calibration points mainly) was written at least once then */
-      /* Button pressed-->go to CALIBRATION - Button NOT pressed-->go to RUNNING */
-      if (eepromTmp == SW_MAJOR_VERSION * 10 + SW_MINOR_VERSION)  // if eepromTmp is equal to "software version as keyword" then it means EEPROM was already initialized yb current SW version
+      pref.begin("stored_var", false); /* Open the "stored" namespace in read/write mode. If it doesn't exist, it creates it */
+
+      if(pref.isKey("sw_maj_ver") && pref.isKey("sw_min_ver") && pref.isKey("user_param")) /* If all keys exists, then check their value */
       {
-        EEPROM.get(ADDR_EEPROM_USER, storedVar);
+        /* Get the values of the sw version */
+        swMajVer = pref.getUChar("sw_maj_ver");
+        swMinVer = pref.getUChar("sw_min_ver");
 
-        initMenuVariables();  // init menu variables with EEPROM stored variables
-
-        /* If button is pressed at startup, go to CALIBRATION state */
-        if (digitalRead(ENCODER_BUTTON_PIN) == BUTT_PRESSED) {
-          currState = CALIBRATION;
-          //initStoredVariables(); // initialize stored variables with default values
-          /* Reset Min and Max to the opposite side, in order to have effective calibration */
-          storedVar.minTrigRaw = MAX_INT16;
-          storedVar.maxTrigRaw = MIN_INT16;
-          calibSound();
-          obdFill(&obd, OBD_WHITE, 1); /* Clear OLED */
-          /* Wait until button is released, then go to CALIBRATION state */
-          while (digitalRead(ENCODER_BUTTON_PIN) == BUTT_PRESSED)
-            showScreenPreCalButPres();
-          obdFill(&obd, OBD_WHITE, 1); /* Clear OLED */
-        }
-        /* If button is NOT pressed at startup, go to RUNNING state */
-        else  //Init completed!
+        if ((swMajVer == SW_MAJOR_VERSION) && (swMinVer == SW_MINOR_VERSION)) /* If both keys are equal to the SW Version MACRO, then the stored param are already initialized */
         {
-          currState = RUNNING;
-          onSound();
-          HalfBridge_Enable();
+
+          pref.getBytes("user_param", &storedVar, sizeof(storedVar)); /* Get the value of the stored user_param */
+          initMenuVariables();  // init menu variables with EEPROM stored variables
+
+          /* If button is pressed at startup, go to CALIBRATION state */
+          if (digitalRead(ENCODER_BUTTON_PIN) == BUTT_PRESSED) 
+          {
+            currState = CALIBRATION;
+
+            /* Reset Min and Max to the opposite side, in order to have effective calibration */
+            storedVar.minTrigRaw = MAX_INT16;
+            storedVar.maxTrigRaw = MIN_INT16;
+            calibSound();
+            obdFill(&obd, OBD_WHITE, 1); /* Clear OLED */
+            /* Wait until button is released, then go to CALIBRATION state */
+            while (digitalRead(ENCODER_BUTTON_PIN) == BUTT_PRESSED)
+              showScreenPreCalButPres();
+            obdFill(&obd, OBD_WHITE, 1); /* Clear OLED */
+          }
+          /* If button is NOT pressed at startup, go to RUNNING state */
+          else  //Init completed!
+          {
+            currState = RUNNING;
+            onSound();
+            HalfBridge_Enable();
+          }
+
+          pref.end(); /* Close the namespace */
+          break;
         }
       }
-      /* Calibration values are NOT stored, go to CALIBRATION state */
-      else  //No stored values! Press button to go calibration..
-      {
+
+      /* Clear all the keys in this namespace */
+
+      pref.clear();
+      /* If the code reaches here it means that:
+        - the sw version keys are not present --> stored var are not initialized
+        - the sw version stored are not up to date --> stored var are initialized but must be corrected
+
+      Calibration values are NOT stored, go to CALIBRATION state */
+
+        pref.putUChar("sw_maj_ver", SW_MAJOR_VERSION);
+        pref.putUChar("sw_min_ver", SW_MINOR_VERSION);
+
         initStoredVariables();  // initialize stored variables with default values
         /* Reset Min and Max to the opposite side, in order to have effective calibration */
         storedVar.minTrigRaw = MAX_INT16;
@@ -196,7 +220,6 @@ void Task1code( void * pvParameters ){
         {
           showScreenNoEEPROM();
         }
-      }
 
       break;
 
@@ -208,11 +231,9 @@ void Task1code( void * pvParameters ){
       if (rotaryEncoder.isEncoderButtonClicked())  // exit calibration and save data to EEPROM (note that all ESC variables remain the same becasue already loaded at startup)
       {
         offSound();
-        eepromTmp = SW_MAJOR_VERSION * 10 + SW_MINOR_VERSION; /* Set eepromTmp to "software version as keyword" to check if EEPROM is correctly read */
-        initMenuVariables();                                  // init menu variables
-        EEPROM.put(ADDR_EEPROM_INIT, eepromTmp);
-        EEPROM.put(ADDR_EEPROM_USER, storedVar);
-        EEPROM.commit();
+        initMenuVariables(); // init menu variables
+        pref.putBytes("user_param", &storedVar, sizeof(storedVar)); /* Put the value of the stored user_param */
+        pref.end(); /* Close the namespace */
         HalfBridge_Enable();
         currState = RUNNING;
       }
@@ -432,9 +453,11 @@ void initMenuVariables() {
   mainMenu.item[i].minValue = 0;
   mainMenu.item[i].callback = &showSelectRenameCar;
 
+  /*
   sprintf(mainMenu.item[++i].name, "*SAVE");
   mainMenu.item[i].value = ITEM_NO_VALUE;
   mainMenu.item[i].callback = &showSaveCar;
+  */
 
   /* Init Car selection menu variables */
   for (uint8_t j = 0; j < CAR_MAX_COUNT; j++) {
@@ -704,7 +727,7 @@ menu_state_enum rotary_onButtonClick(menu_state_enum currMenuState) {
     rotaryEncoder.reset(encoderMainSelector);
     escVar.encoderPos = encoderMainSelector;
     /* save modified values to EEPROM */
-    //saveEEPROM(storedVar); /* Save is only done on SAVE option */
+    saveEEPROM(storedVar);
     return ITEM_SELECTION;
   }
 }
@@ -1034,7 +1057,7 @@ void showCurveSelection() {
   rotaryEncoder.reset(encoderMainSelector);
   escVar.encoderPos = encoderMainSelector;
   /* save modified values to EEPROM */
-  //saveEEPROM(storedVar); /* Save is only done on SAVE option */
+  saveEEPROM(storedVar);
   /* Clear screen */
   obdFill(&obd, OBD_WHITE, 1);
 
@@ -1117,8 +1140,9 @@ uint16_t saturateParamValue(uint16_t paramValue, uint16_t minValue, uint16_t max
 void saveEEPROM(EEPROM_stored_var_type toSave)
 {
   //timerStop(timer);                         /* Stop the timer */
-  EEPROM.put(ADDR_EEPROM_USER, toSave);  /* Save values to EEPROM */
-  EEPROM.commit();
+  pref.begin("stored_var", false); /* Open the "stored" namespace in read/write mode */
+  pref.putBytes("user_param", &toSave, sizeof(toSave)); /* Put the value of the stored user_param */
+  pref.end();
   //timerStart(timer);                        /* Resume the timer */
 }
 

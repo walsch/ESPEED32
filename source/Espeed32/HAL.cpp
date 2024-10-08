@@ -32,7 +32,8 @@
 
 void HAL_InitHW()
 {
-  EEPROM.begin(EEPROM_SIZE);
+  /* Deprecated: no longer using EEPROM library --> now using Preferences.h library for storing NVM data */
+  //EEPROM.begin(EEPROM_SIZE);
   /* Setup fo the parameters for serial(debug) communication */ 
   Serial.begin(115200);      
 
