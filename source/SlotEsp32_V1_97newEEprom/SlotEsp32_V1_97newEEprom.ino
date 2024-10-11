@@ -20,7 +20,7 @@
 TaskHandle_t Task1;
 TaskHandle_t Task2;
 
-static FSM_state_enum currState = INIT;
+static StateMachine_enum currState = INIT;
 uint16_t debug;
 
 /* Display Backbuffer */
@@ -49,24 +49,24 @@ static uint8_t encoderSecondarySelector = 0;
 static uint16_t *encoderSelectedValuePtr = NULL;
 
 /* EEPROM stored values (mainly calibration) global instance */
-EEPROM_stored_var_type storedVar;
+StoredVar_type storedVar;
 
 /* ESC internal variables gloabl instance */
-ESC_var_type escVar{
-  .outSpdSetPerc = 0,  // [%] set speed
-  .trigRaw = 0,
-  .trigNorm = 0,  //  Normalized trigger position
-  .trigDeriv = 0,
+ESC_type escVar{
+  .outputSpeed_pct = 0,  // [%] set speed
+  .trigger_raw = 0,
+  .trigger_norm = 0,  //  Normalized trigger position
+  .triggerDerivate = 0,
   .encoderPos = 1,  // [%] encodReadRaw
   .Vin_mV = 0
 };
 
 /* Menu global instances */
-menu_type mainMenu{
+Menu_type mainMenu{
   .lines = 3
 };
 
-menu_type carMenu{
+Menu_type carMenu{
   .lines = 3
 };
 
@@ -124,15 +124,15 @@ void setup() {
 //Task1code: slotESC state machine: manage OLED display and Encoder, low priority task
 void Task1code(void *pvParameters) {
   for (;;) {
-    FSM_state_enum prevState = currState;  // variable used to track if state machine changed state from last loop
+    StateMachine_enum prevState = currState;  // variable used to track if state machine changed state from last loop
     static uint16_t prevFreqPWM = 0;
-    static menu_state_enum menuState = ITEM_SELECTION;
+    static MenuState_enum menuState = ITEM_SELECTION;
     static uint8_t eepromTmp;
     static uint8_t swMajVer, swMinVer;
 
     escVar.Vin_mV = HAL_ReadVoltageDivider(AN_VIN_DIV, RVIFBL, RVIFBH); /* Read VIN */
     if (currState != INIT) // if variables are already fetched from the EEPROM
-      gCarSel = storedVar.carSelNumber;    // update global variable telling which car model is actually selected
+      gCarSel = storedVar.selectedCarNumber;    // update global variable telling which car model is actually selected
 
     switch (currState) {
       case INIT:
@@ -155,8 +155,8 @@ void Task1code(void *pvParameters) {
             if (digitalRead(ENCODER_BUTTON_PIN) == BUTT_PRESSED) {
               currState = CALIBRATION;
               /* Reset Min and Max to the opposite side, in order to have effective calibration */
-              storedVar.minTrigRaw = MAX_INT16;
-              storedVar.maxTrigRaw = MIN_INT16;
+              storedVar.minTrigger_raw = MAX_INT16;
+              storedVar.maxTrigger_raw = MIN_INT16;
               calibSound();
               initDisplayAndEncoder();  // init and clear OLED and Encoder
               /* Wait until button is released, then go to CALIBRATION state */
@@ -167,7 +167,7 @@ void Task1code(void *pvParameters) {
             else  /* If button is NOT pressed at startup, go to RUNNING state */
             {
               currState = WELCOME;
-              gCarSel = storedVar.carSelNumber; //now it is safe to address the proper car
+              gCarSel = storedVar.selectedCarNumber; //now it is safe to address the proper car
               initDisplayAndEncoder();  // init and clear OLED and Encoder
               onSound();
             }
@@ -192,8 +192,8 @@ void Task1code(void *pvParameters) {
 
       initStoredVariables();  // initialize stored variables with default values
       /* Reset Min and Max to the opposite side, in order to have effective calibration */
-      storedVar.minTrigRaw = MAX_INT16;
-      storedVar.maxTrigRaw = MIN_INT16;
+      storedVar.minTrigger_raw = MAX_INT16;
+      storedVar.maxTrigger_raw = MIN_INT16;
       calibSound();
       currState = CALIBRATION;
       obdFill(&obd, OBD_WHITE, 1); /* Clear OLED */
@@ -207,8 +207,8 @@ void Task1code(void *pvParameters) {
 
       case CALIBRATION:
         /* Read Throttle */
-        throttleCalibration(escVar.trigRaw);  // trig raw is continuously read on task2
-        showScreenCalibration(escVar.trigRaw);
+        throttleCalibration(escVar.trigger_raw);  // trig raw is continuously read on task2
+        showScreenCalibration(escVar.trigger_raw);
         /* Exit calibration if button is presseded */
         if (rotaryEncoder.isEncoderButtonClicked())  // exit calibration and save data to EEPROM (note that all ESC variables remain the same becasue already loaded at startup)
         {
@@ -247,7 +247,7 @@ void Task1code(void *pvParameters) {
         if (menuState == VALUE_SELECTION) {
           encoderSecondarySelector = escVar.encoderPos;
           *encoderSelectedValuePtr = encoderSecondarySelector;
-          storedVar.carParam[gCarSel].throttleSetPoint.outSpeed = saturateParamValue(storedVar.carParam[gCarSel].throttleSetPoint.outSpeed, THR_SETP_MIN_VALUE, THR_SETP_MAX_VALUE); /* Regulate min value for throttle setpoint */
+          storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff = saturateParamValue(storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff, THR_SETP_MIN_VALUE, THR_SETP_MAX_VALUE); /* Regulate min value for throttle setpoint */
         }
 
         /* Show RUN display */
@@ -277,43 +277,42 @@ void Task1code(void *pvParameters) {
 }
 
 /* TASK2 : trigger reading, trigger conditioning, PWM output
-   Legend:
-  - Perc, Pct: percent value between 0 and 100%
-  - Norm: Normalized value between 0 and THROTTLE_NORMALIZED
+
   */
 void Task2code(void *pvParameters) {
   static uint16_t tmpDragBrake, tmpTrigNorm, onlyPlusDeriv;
-  static unsigned long lastCallUs, deltaTimeUs, thisCalluS;
-  static unsigned long actualTrigRaw = 0, prevTrigRaw = 0;
+  static unsigned long prevCallTime_uS = 0, deltaTime_uS, currCallTime_uS;  /* Used to keep track of time between executions */
+  static unsigned long currTrigger_raw = 0, prevTrigger_raw = 0;            /* Used to keep track of current and previous trigger readings */
   
-  HalfBridge_Enable();  //not really needed? it is only toggling the inhibit
+  HalfBridge_Enable();  /* TODO: verify if needed */
 
   for (;;) {
-    thisCalluS = micros();
-    deltaTimeUs = thisCalluS - lastCallUs;  // delta time from last call of this function
-    if (deltaTimeUs > ESC_PERIOD_US) {
-      prevTrigRaw = actualTrigRaw;
-      actualTrigRaw = HAL_ReadTriggerRaw();  //always read trigger (needed in calibration and other func)
-      escVar.trigRaw = (prevTrigRaw + actualTrigRaw) / 2;
-      //escVar.trigRaw = storedVar.maxTrigRaw ;// DEBUG remove me !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      lastCallUs = thisCalluS;                               // update last call static memory
-      if (!(currState == CALIBRATION || currState == INIT))  // do not apply power if in calibration or before vari (TODO: would be better to have also variables init)
+    currCallTime_uS = micros();                         /* Get current time in uS */
+    deltaTime_uS = currCallTime_uS - prevCallTime_uS;   /* Calculate delta time between current and previous execution */
+    
+    if (deltaTime_uS > ESC_PERIOD_US) /* This condition ensure that the following code is executed every ESC_PERIOD_US */
+    {
+      prevTrigger_raw = currTrigger_raw;
+      currTrigger_raw = HAL_ReadTriggerRaw();  /* Read raw trigger value */
+      escVar.trigger_raw = (prevTrigger_raw + currTrigger_raw) / 2;   /* Take the average between current and previous trigger readings --> attenuate disturbs */
+      prevCallTime_uS = currCallTime_uS;                              /* update last call static memory */
+      if (!(currState == CALIBRATION || currState == INIT))           /* Do not apply power if in calibration or before initialization (TODO: would be better to have also variables init) */
       {
-        //Throttle -> Speed pipeline , perform time dependent adjustment
-        tmpTrigNorm = normalizeAndClamp(escVar.trigRaw, storedVar.minTrigRaw, storedVar.maxTrigRaw, THROTTLE_NORMALIZED, THROTTLE_REV);  // Get Raw trigger position and return throttle between 0 and THROTTLE_NORMALIZED
-        escVar.trigNorm = addDeadBand(tmpTrigNorm, THROTTLE_DEADBAND_NORM);                                                              // Account for Deadband percent
-        escVar.trigDeriv = computetrigDerivGPT(escVar.trigNorm);
-        escVar.outSpdSetPerc = throttleCurve(escVar.trigNorm);          // Map inputTrigPos to throttleCurve
-        escVar.outSpdSetPerc = throttleAntiSpin(escVar.outSpdSetPerc);  // define actual throttle output , considering antispin
+        /* Throttle -> Speed pipeline , perform time dependent adjustment */
+        tmpTrigNorm = normalizeAndClamp(escVar.trigger_raw, storedVar.minTrigger_raw, storedVar.maxTrigger_raw, THROTTLE_NORMALIZED, THROTTLE_REV);  // Get Raw trigger position and return throttle between 0 and THROTTLE_NORMALIZED
+        escVar.trigger_norm = addDeadBand(tmpTrigNorm, THROTTLE_DEADBAND_NORM);                                                              // Account for Deadband percent
+        escVar.triggerDerivate = computetrigDerivGPT(escVar.trigger_norm);
+        escVar.outputSpeed_pct = throttleCurve(escVar.trigger_norm);          // Map inputTrigPos to throttleCurve
+        escVar.outputSpeed_pct = throttleAntiSpin(escVar.outputSpeed_pct);  // define actual throttle output , considering antispin
 
-        if (escVar.outSpdSetPerc == 0) {                                // if the requested speed is 0
+        if (escVar.outputSpeed_pct == 0) {                                // if the requested speed is 0
           HalfBridge_SetPwmDrag(0, storedVar.carParam[gCarSel].brake);  // apply brake only (and speed to 0) in case speed set is 0
           tmpDragBrake = 0;                                             //set also tmpDragBrake to 0 just to look nicer on the display
         } else {
           // make TMP dragbrake prpoportional to the derivative
-          onlyPlusDeriv = constrain(-escVar.trigDeriv, 0, MAX_UINT16);
+          onlyPlusDeriv = constrain(-escVar.triggerDerivate, 0, MAX_UINT16);
           tmpDragBrake = normalizeAndClamp(onlyPlusDeriv, 0, DERIVATE_MAX_ACTION_NORM, storedVar.carParam[gCarSel].dragBrake, 0);
-          HalfBridge_SetPwmDrag(escVar.outSpdSetPerc, tmpDragBrake);  // apply output duty & drag brake
+          HalfBridge_SetPwmDrag(escVar.outputSpeed_pct, tmpDragBrake);  // apply output duty & drag brake
         }
       }
     }  // if (deltaTimeUs > ESC_PERIOD_US)
@@ -358,15 +357,15 @@ void initStoredVariables() {
     storedVar.carParam[i].brake = BRAKE_DEFAULT;
     storedVar.carParam[i].dragBrake = DRAG_BRAKE_DEFAULT;
     storedVar.carParam[i].maxSpeed = MAX_SPEED_DEFAULT;
-    storedVar.carParam[i].throttleSetPoint = { THR_CRV_IN_LEVEL_JOINT, THR_CRV_OUT_LEVEL_DEFAULT };
+    storedVar.carParam[i].throttleCurveVertex = { THR_CRV_IN_LEVEL_JOINT, THR_CRV_OUT_LEVEL_DEFAULT };
     storedVar.carParam[i].antiSpin = ANTISPIN_DEFAULT;
     storedVar.carParam[i].freqPWM = PWM_FREQ_DEFAULT;
     storedVar.carParam[i].carNumber = i;
     sprintf(storedVar.carParam[i].carName, "CAR%1d", i);
   }
-  storedVar.carSelNumber = 0;
-  storedVar.minTrigRaw = 0;
-  storedVar.maxTrigRaw = ACD_RESOLUTION_STEPS;
+  storedVar.selectedCarNumber = 0;
+  storedVar.minTrigger_raw = 0;
+  storedVar.maxTrigger_raw = ACD_RESOLUTION_STEPS;
 }
 
 
@@ -398,7 +397,7 @@ void initMenuVariables() {
   mainMenu.item[i].callback = ITEM_NO_CALLBACK;
 
   sprintf(mainMenu.item[++i].name, "CURVE");
-  mainMenu.item[i].value = (void *)&storedVar.carParam[gCarSel].throttleSetPoint.outSpeed;
+  mainMenu.item[i].value = (void *)&storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff;
   mainMenu.item[i].type = VALUE_TYPE_INTEGER;
   mainMenu.item[i].unit = '%';
   mainMenu.item[i].maxValue = THR_SETP_MAX_VALUE;
@@ -486,17 +485,17 @@ void showScreenCalibration(int16_t adcRaw) {
   sprintf(msgStr, "Raw throttle %4d  ", adcRaw);
   obdWriteString(&obd, 0, 0, 24, msgStr, FONT_6x8, OBD_BLACK, 1);
 
-  sprintf(msgStr, "Min throttle %4d   ", storedVar.minTrigRaw);
+  sprintf(msgStr, "Min throttle %4d   ", storedVar.minTrigger_raw);
   obdWriteString(&obd, 0, 0, 32, msgStr, FONT_6x8, OBD_BLACK, 1);
 
-  sprintf(msgStr, "Max throttle %4d   ", storedVar.maxTrigRaw);
+  sprintf(msgStr, "Max throttle %4d   ", storedVar.maxTrigger_raw);
   obdWriteString(&obd, 0, 0, 40, msgStr, FONT_6x8, OBD_BLACK, 1);
 
   sprintf(msgStr, " push when done ");
   obdWriteString(&obd, 0, 0, 56, msgStr, FONT_6x8, OBD_BLACK, 1);
 }
 
-void printMainMenu(menu_state_enum currMenuState) {
+void printMainMenu(MenuState_enum currMenuState) {
   static uint16_t tmp = 0;
   ;
 
@@ -557,9 +556,9 @@ void printMainMenu(menu_state_enum currMenuState) {
   }
 
   /* print analytic - statistic line */
-  sprintf(msgStr, "%3d%c", escVar.outSpdSetPerc, '%');
-  obdWriteString(&obd, 0, 0, 3 * HEIGHT12x16 + HEIGHT8x8, msgStr, FONT_8x8, (escVar.outSpdSetPerc == 100) ? OBD_WHITE : OBD_BLACK, 1);
-  sprintf(msgStr, "%3d ", escVar.trigDeriv);
+  sprintf(msgStr, "%3d%c", escVar.outputSpeed_pct, '%');
+  obdWriteString(&obd, 0, 0, 3 * HEIGHT12x16 + HEIGHT8x8, msgStr, FONT_8x8, (escVar.outputSpeed_pct == 100) ? OBD_WHITE : OBD_BLACK, 1);
+  sprintf(msgStr, "%3d ", escVar.triggerDerivate);
   obdWriteString(&obd, 0, 4 * WIDTH8x8, 3 * HEIGHT12x16 + HEIGHT8x8, msgStr, FONT_6x8, OBD_BLACK, 1);
   sprintf(msgStr, " %d.%01dV ", escVar.Vin_mV / 1000, (escVar.Vin_mV % 1000) / 100);
   obdWriteString(&obd, 0, 7 * WIDTH8x8, 3 * HEIGHT12x16 + HEIGHT8x8, msgStr, FONT_6x8, OBD_BLACK, 1);  // with -1 as X means start when previous write stopped
@@ -633,7 +632,7 @@ uint16_t throttleCurve(uint16_t inputThrottle) {
   uint32_t thrOutIntersection;  // curve for output level coordinate of the intersection (breakpoint)
 
   // calculate the thorttle output breakpoint (the input is fixed to 50%)
-  thrOutIntersection = storedVar.carParam[gCarSel].minSpeed + ((uint32_t)storedVar.carParam[gCarSel].maxSpeed - (uint32_t)storedVar.carParam[gCarSel].minSpeed) * ((uint32_t)storedVar.carParam[gCarSel].throttleSetPoint.outSpeed) / 100;
+  thrOutIntersection = storedVar.carParam[gCarSel].minSpeed + ((uint32_t)storedVar.carParam[gCarSel].maxSpeed - (uint32_t)storedVar.carParam[gCarSel].minSpeed) * ((uint32_t)storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff) / 100;
 
   if (inputThrottle == 0) {
     outputSpeed = 0;
@@ -651,14 +650,14 @@ uint16_t throttleCurve(uint16_t inputThrottle) {
  Check if the parameter adcRaw is bigger/smaller than the stored max/min values
 */
 void throttleCalibration(int16_t adcRaw) {
-  if (storedVar.maxTrigRaw < adcRaw)
-    storedVar.maxTrigRaw = adcRaw;
-  if (storedVar.minTrigRaw > adcRaw)
-    storedVar.minTrigRaw = adcRaw;
+  if (storedVar.maxTrigger_raw < adcRaw)
+    storedVar.maxTrigger_raw = adcRaw;
+  if (storedVar.minTrigger_raw > adcRaw)
+    storedVar.minTrigger_raw = adcRaw;
 }
 
 
-menu_state_enum rotary_onButtonClick(menu_state_enum currMenuState) {
+MenuState_enum rotary_onButtonClick(MenuState_enum currMenuState) {
   static unsigned long lastTimePressed = 0;
   static uint16_t selectedParamMaxValue = 100;
   static uint16_t selectedParamMinValue = 0;
@@ -708,26 +707,26 @@ void showCarSelection() {
   /* Set encoder to car selection parameter */
   rotaryEncoder.setAcceleration(MENU_ACCELERATION); /* Larger number = more accelearation; 0 or 1 means disabled acceleration */
   rotaryEncoder.setBoundaries(0, CAR_MAX_COUNT - 1, false);
-  rotaryEncoder.reset(storedVar.carSelNumber);
+  rotaryEncoder.reset(storedVar.selectedCarNumber);
 
   /* Exit car selection when encoder is clicked */
   while (!rotaryEncoder.isEncoderButtonClicked()) {
     /* Get encoder value if changed */
-    storedVar.carSelNumber = rotaryEncoder.encoderChanged() ? rotaryEncoder.readEncoder() : storedVar.carSelNumber;
+    storedVar.selectedCarNumber = rotaryEncoder.encoderChanged() ? rotaryEncoder.readEncoder() : storedVar.selectedCarNumber;
     /* In encoder move out of frame, adjust frame */
-    if (storedVar.carSelNumber > frameLower) {
-      frameLower = storedVar.carSelNumber;
+    if (storedVar.selectedCarNumber > frameLower) {
+      frameLower = storedVar.selectedCarNumber;
       frameUpper = frameLower - carMenu.lines + 1;
       obdFill(&obd, OBD_WHITE, 1);
-    } else if (storedVar.carSelNumber < frameUpper) {
-      frameUpper = storedVar.carSelNumber;
+    } else if (storedVar.selectedCarNumber < frameUpper) {
+      frameUpper = storedVar.selectedCarNumber;
       frameLower = frameUpper + carMenu.lines - 1;
       obdFill(&obd, OBD_WHITE, 1);
     }
 
     /* Print car menu */
     for (uint8_t i = 0; i < carMenu.lines; i++) {
-      obdWriteString(&obd, 0, 0, i * HEIGHT12x16, carMenu.item[frameUpper + i].name, FONT_12x16, (storedVar.carSelNumber - frameUpper == i) ? OBD_WHITE : OBD_BLACK, 1);
+      obdWriteString(&obd, 0, 0, i * HEIGHT12x16, carMenu.item[frameUpper + i].name, FONT_12x16, (storedVar.selectedCarNumber - frameUpper == i) ? OBD_WHITE : OBD_BLACK, 1);
       if (carMenu.item[frameUpper + i].value != ITEM_NO_VALUE) {
         /* value is a generic pointer to void, so first cast to uint16_t pointer, then take the pointed value */
         sprintf(msgStr, "%2d", *(uint16_t *)(carMenu.item[frameUpper + i].value));
@@ -760,7 +759,7 @@ void showSelectRenameCar() {
 
   /* Trigger reading stops, so stop the motor */
   /* Set trigRaw to max throttle if throttle is reversed, set to min throttle otherwise */
-  escVar.trigRaw = THROTTLE_REV ? storedVar.maxTrigRaw : storedVar.minTrigRaw;
+  escVar.trigger_raw = THROTTLE_REV ? storedVar.maxTrigger_raw : storedVar.minTrigger_raw;
 
   uint16_t selectedOption = 0;
   /* Clear screen */
@@ -811,7 +810,7 @@ void showRenameCar() {
   /* Remember that CAR_NAME_MAX_SIZE is 6 because the last char is the terminator */
   char tmpName[CAR_NAME_MAX_SIZE];
   uint16_t mode = RENAME_CAR_SELECT_OPTION_MODE;
-  sprintf(tmpName, "%s", storedVar.carParam[storedVar.carSelNumber].carName);
+  sprintf(tmpName, "%s", storedVar.carParam[storedVar.selectedCarNumber].carName);
 
   /* Clear screen */
   obdFill(&obd, OBD_WHITE, 1);
@@ -866,7 +865,7 @@ void showRenameCar() {
       /* Exit renameCar routing when CONFIRM is selected */
       if (selectedOption == CAR_NAME_MAX_SIZE - 1) {
         /* Change the name of the Car */
-        sprintf(storedVar.carParam[storedVar.carSelNumber].carName, "%s", tmpName);
+        sprintf(storedVar.carParam[storedVar.selectedCarNumber].carName, "%s", tmpName);
         /* Menu variables are initialized in main loop */
         return;
       }
@@ -899,8 +898,8 @@ void showRenameCar() {
 
 void showCurveSelection() {
   uint16_t thrOutIntersection;
-  uint16_t prevTrigger = escVar.outSpdSetPerc;
-  uint16_t inThrottlePerc = (storedVar.carParam[gCarSel].throttleSetPoint.inThrottle * 100) / THROTTLE_NORMALIZED;  //Take inThrottle (from 0 to THROTTLE NORMALIZED) and convert it in a 0% to 100% value
+  uint16_t prevTrigger = escVar.outputSpeed_pct;
+  uint16_t inThrottlePerc = (storedVar.carParam[gCarSel].throttleCurveVertex.inputThrottle * 100) / THROTTLE_NORMALIZED;  //Take inThrottle (from 0 to THROTTLE NORMALIZED) and convert it in a 0% to 100% value
   /* Clear screen and draw x and y axis */
   obdFill(&obd, OBD_WHITE, 1);
   obdDrawLine(&obd, 25, 0, 25, 50, OBD_BLACK, 1);
@@ -924,10 +923,10 @@ void showCurveSelection() {
   /* Set encoder to curve parameters */
   rotaryEncoder.setAcceleration(SEL_ACCELERATION); /* Larger number = more accelearation; 0 or 1 means disabled acceleration */
   rotaryEncoder.setBoundaries(THR_SETP_MIN_VALUE, THR_SETP_MAX_VALUE, false);
-  rotaryEncoder.reset(storedVar.carParam[gCarSel].throttleSetPoint.outSpeed);
+  rotaryEncoder.reset(storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff);
 
   /* Calculate intersection point (as in throttleCurve() function) */
-  thrOutIntersection = storedVar.carParam[gCarSel].minSpeed + ((uint32_t)storedVar.carParam[gCarSel].maxSpeed - (uint32_t)storedVar.carParam[gCarSel].minSpeed) * ((uint32_t)storedVar.carParam[gCarSel].throttleSetPoint.outSpeed) / 100;
+  thrOutIntersection = storedVar.carParam[gCarSel].minSpeed + ((uint32_t)storedVar.carParam[gCarSel].maxSpeed - (uint32_t)storedVar.carParam[gCarSel].minSpeed) * ((uint32_t)storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff) / 100;
 
   /* Draw Line from MIN SPEED, to middle point */
   obdDrawLine(&obd, 25, 50 - (storedVar.carParam[gCarSel].minSpeed / 2), 25 + inThrottlePerc, map(thrOutIntersection, 0, 100, 50, 0), OBD_BLACK, 1);
@@ -935,7 +934,7 @@ void showCurveSelection() {
   obdDrawLine(&obd, 25 + inThrottlePerc, map(thrOutIntersection, 0, 100, 50, 0), 125, map(storedVar.carParam[gCarSel].maxSpeed, 0, 100, 50, 0), OBD_BLACK, 1);
 
   /* Write the CURV value */
-  sprintf(msgStr, "%3d%c", storedVar.carParam[gCarSel].throttleSetPoint.outSpeed, '%');
+  sprintf(msgStr, "%3d%c", storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff, '%');
   obdWriteString(&obd, 0, OLED_WIDTH - 48, 34, msgStr, FONT_12x16, OBD_BLACK, 1);
 
   /* Write the trigger value */
@@ -946,9 +945,9 @@ void showCurveSelection() {
   while (!rotaryEncoder.isEncoderButtonClicked()) {
 
     /* Write the trigger value only if it changed */
-    if (escVar.outSpdSetPerc != prevTrigger) {
+    if (escVar.outputSpeed_pct != prevTrigger) {
       /* Update trigger */
-      prevTrigger = escVar.outSpdSetPerc;
+      prevTrigger = escVar.outputSpeed_pct;
 
       /* Write the trigger value */
       sprintf(msgStr, "%3d%c", prevTrigger, '%');
@@ -961,9 +960,9 @@ void showCurveSelection() {
       obdDrawLine(&obd, 25, 50 - (storedVar.carParam[gCarSel].minSpeed / 2), 25 + inThrottlePerc, map(thrOutIntersection, 0, 100, 50, 0), OBD_WHITE, 1);
       obdDrawLine(&obd, 25 + inThrottlePerc, map(thrOutIntersection, 0, 100, 50, 0), 125, map(storedVar.carParam[gCarSel].maxSpeed, 0, 100, 50, 0), OBD_WHITE, 1);
       /* Update the value of the setpoint */
-      storedVar.carParam[gCarSel].throttleSetPoint.outSpeed = rotaryEncoder.readEncoder();
-      sprintf(msgStr, "%3d%c", storedVar.carParam[gCarSel].throttleSetPoint.outSpeed, '%');
-      thrOutIntersection = storedVar.carParam[gCarSel].minSpeed + ((uint32_t)storedVar.carParam[gCarSel].maxSpeed - (uint32_t)storedVar.carParam[gCarSel].minSpeed) * ((uint32_t)storedVar.carParam[gCarSel].throttleSetPoint.outSpeed) / 100;
+      storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff = rotaryEncoder.readEncoder();
+      sprintf(msgStr, "%3d%c", storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff, '%');
+      thrOutIntersection = storedVar.carParam[gCarSel].minSpeed + ((uint32_t)storedVar.carParam[gCarSel].maxSpeed - (uint32_t)storedVar.carParam[gCarSel].minSpeed) * ((uint32_t)storedVar.carParam[gCarSel].throttleCurveVertex.curveSpeedDiff) / 100;
       obdWriteString(&obd, 0, OLED_WIDTH - 48, 34, msgStr, FONT_12x16, OBD_BLACK, 1);
       /* Draw the new lines */
       obdDrawLine(&obd, 25, 50 - (storedVar.carParam[gCarSel].minSpeed / 2), 25 + inThrottlePerc, map(thrOutIntersection, 0, 100, 50, 0), OBD_BLACK, 1);
@@ -1046,20 +1045,30 @@ int16_t computetrigDerivGPT(uint16_t current_value) {
   return derivative;
 }
 
-
-uint16_t saturateParamValue(uint16_t paramValue, uint16_t minValue, uint16_t maxValue) {
+/**
+ * Saturate an input value between a upper and lower bound
+ * 
+ * @param paramValue The input value to be saturated
+ * @param minValue The lower bound
+ * @param maxValue The upper bound
+ * @return The saturated input value.
+ */
+uint16_t saturateParamValue(uint16_t paramValue, uint16_t minValue, uint16_t maxValue) 
+{
   uint16_t retValue = paramValue;
 
-  if (paramValue > maxValue) {
+  if (paramValue > maxValue) 
+  {
     retValue = maxValue;
-  } else if (paramValue < minValue) {
+  } else if (paramValue < minValue) 
+  {
     retValue = minValue;
   }
 
   return retValue;
 }
 
-void saveEEPROM(EEPROM_stored_var_type toSave) {
+void saveEEPROM(StoredVar_type toSave) {
   //timerStop(timer);                         /* Stop the timer */
   pref.begin("stored_var", false);                      /* Open the "stored" namespace in read/write mode */
   pref.putBytes("user_param", &toSave, sizeof(toSave)); /* Put the value of the stored user_param */

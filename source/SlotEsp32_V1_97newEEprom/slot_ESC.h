@@ -21,14 +21,14 @@
 #define SEL_ACCELERATION    100 /* Encoder acceleration when selecting parameter value */
 #define ITEM_NO_CALLBACK    0   /* For when a item has no callback */
 #define ITEM_NO_VALUE       0   /* For when an item has no value to be displayed */
-#define MAX_ITEMS           10  /* Max Item on a menu, it will be used on all menus (including car selections)*/
+#define MAX_ITEMS           10  /* Max Item on a menu, it will be used on all menus (including car selections) */
 
 #define MIN_SPEED_DEFAULT         20  // [%] userMinSpeed default                  
 #define BRAKE_DEFAULT             95  // [%]
 #define DRAG_BRAKE_DEFAULT        100 // [%]  
 #define ANTISPIN_DEFAULT          30  // ms
 #define MAX_SPEED_DEFAULT         100 // [%]  
-#define THR_CRV_OUT_LEVEL_DEFAULT 50  // [%] percent of throt out 50 is linear
+#define THR_CRV_OUT_LEVEL_DEFAULT 50  // [%] percent of throttle where the curve is broken */
 #define PWM_FREQ_DEFAULT          30   //[100*Hz]
 
 #define THR_CRV_IN_LEVEL_JOINT THROTTLE_NORMALIZED/2 // throttle curve will break at 50% of the trigger travel
@@ -71,30 +71,26 @@
 /*********************************************************************************************************************/
 
 /* Enum definition for the Finite State Machine */
-typedef enum FSM_state_enum
+typedef enum
 { 
   INIT, 
   CALIBRATION,
   WELCOME,
   RUNNING, 
   FAULT
-} FSMstate;
+} StateMachine_enum;
+
 
 /* Enum definition for the Main Menu state machine */
-typedef enum menu_state_enum
+typedef enum
 {
   ITEM_SELECTION,
   VALUE_SELECTION
-} menuState;
+} MenuState_enum;
+
 
 /* Enum definition for what kind of value is going to be displayed next to the item name */
-typedef enum menu_item_value_enum
-{
-  VALUE_TYPE_INTEGER,
-  VALUE_TYPE_DECIMAL,
-  VALUE_TYPE_STRING,
-} itemValueType;
-/* Comment on representation of decimal values in the menu: the value must be represented as integer, and it must be specified where the decimal point is placed:
+/* On representation of decimal values in the menu: the value must be represented as integer, and it must be specified where the decimal point is placed:
    e.g.: PWM freq is a value that we want represented in kHz, ranging from 0.2 to 5.0. We are gonna create the menu item type with the following fields:
          type: VALUE_TYPE_DECIMAL;
          maxValue: 50;
@@ -103,68 +99,82 @@ typedef enum menu_item_value_enum
          meaning that internally the values ranges from 2 to 50. When selected with the encoder in the main menu the value can be increased 1 by 1.
          The value that is displayed will be divided by 10^decimalPoint, to show values that ranges from 0.2 to 5.0.
          The application must take into account that the stored value will range from 2 to 50 during the calculations. */
+typedef enum
+{
+  VALUE_TYPE_INTEGER,
+  VALUE_TYPE_DECIMAL,
+  VALUE_TYPE_STRING,
+} ItemValueType_enum;
 
 
+/* ThrottleCurveVertex_type: struct definition of the Throttle curve vertex 
+   The Throttle curve is composed by two consecutive segments, connected by a single point called vertex.
+   The throttle curve is placed in a XY plane, where the X axis corresponds to the input throttle and the Y axis
+   corresponds to the duty cycle output (sometimes referred to as "speed").
+   This struct describe the vertex of the throttle curve */
 typedef struct {
-  uint16_t inThrottle;
-  uint16_t outSpeed;
-} throttle_curve_set_point_type;
+  uint16_t inputThrottle;      /* Input throttle, corresponds to the X coordinate of the vertex. From 0% to 100% - fixed by default at 50% */
+  uint16_t curveSpeedDiff;     /* Describes the Y coordinate of the vertex by % of the difference between the min and max speed.
+                                  A value of 50% makes the throttle curve a straight line (i.e., the Y coordinate of the vertex is the middle point 
+                                  between the max and min speed) */
+} ThrottleCurveVertex_type;
 
 
+/* CarParam_type: struct definition of the car param. Contains all the parameter that defines the behaviour of the controller */
 typedef struct {
-  uint16_t minSpeed; 
-  uint16_t brake;    
-  uint16_t dragBrake;
-  uint16_t maxSpeed;
-  throttle_curve_set_point_type throttleSetPoint; 
-  uint16_t antiSpin;//[ms]
-  char     carName[CAR_NAME_MAX_SIZE];// 5 letters plus end of line
-  uint16_t carNumber; /* Simply to identify the position in the array, not to be changed */
-  uint16_t freqPWM; /* motor PWM frequency */
-}car_param_type;
+  uint16_t minSpeed;    /* [%]  SENSI, from 0% to 90%                  */
+  uint16_t brake;       /* [%]  BRAKE, from 0% to 100%                 */ 
+  uint16_t dragBrake;   /* [%]  DRAGB, from 0% to 100%                 */
+  uint16_t maxSpeed;    /* [%]  LIMIT, from max(5, SENSI + 5)% to 100% */
+  ThrottleCurveVertex_type throttleCurveVertex; 
+  uint16_t antiSpin;    /* [ms] ANTIS, from 0ms to 250ms               */
+  char     carName[CAR_NAME_MAX_SIZE]; /* Name of the CAR, size include terminator character  */
+  uint16_t carNumber;   /* Simply to identify the position in the array, not to be changed    */
+  uint16_t freqPWM;     /* [100*Hz] PWM_F, motor PWM frequency, from 2 to 50                  */
+}CarParam_type;
+
 
 /* Struct definition for variables stored in the EEPROM */
 typedef struct {
-  car_param_type carParam[CAR_MAX_COUNT]; 
-  uint16_t  carSelNumber;// which car is 
-  int16_t  minTrigRaw;
-  int16_t  maxTrigRaw;
-} EEPROM_stored_var_type;
+  CarParam_type carParam[CAR_MAX_COUNT];    /* Array of CarParam_type */ 
+  uint16_t  selectedCarNumber;              /* Currently selected car  */
+  int16_t   minTrigger_raw;                 /* Min trigger raw value, calibration parameter */
+  int16_t   maxTrigger_raw;                 /* Max trigger raw value, calibration parameter */
+} StoredVar_type;
 
 
-/* ESC_var_type: struct that contains all the charger variables */
+/* ESC_type: struct that contains all the charger variables */
 typedef struct {
-  uint16_t  outSpdRequest;    // [%] Set speed (desired target)
-  uint16_t  outSpdSetPerc;    // [%] Set speed (desired target)
-  int16_t   trigRaw;
-  uint16_t  trigNorm;   // [%] trigger position
-  int16_t   trigDeriv;
-  uint16_t  encoderPos; // [%] encodReadRaw
-  uint16_t  Vin_mV;
-} ESC_var_type;
+  uint16_t  outputSpeed_pct;  /* [%] Output speed (duty cycle) obtained after the throttle -> speed pipeline */
+  int16_t   trigger_raw;      /* [raw] trigger reading */
+  uint16_t  trigger_norm;     /* Trigger value, normalized between 0 and THROTTLE_NORMALIZED, to increase granularity */
+  int16_t   triggerDerivate;  /* Trigger derivate, absolute number */ 
+  uint16_t  encoderPos;       /* Current encoder value */
+  uint16_t  Vin_mV;           /* [mV] Voltage */
+} ESC_type;
 
 
 /* Define a pointer to a void function that takes no arguments */
-typedef void (*function_pointer_type)(void);
+typedef void (*FunctionPointer_type)(void);
 
 
-/* menu_item_type: struct that defines an item of the menu */
+/* MenuItem_type: struct that defines an item of the menu */
 typedef struct {
   char name[10];                  /* Name of the item that is displayed in the menu */
   void *value;                    /* Pointer to the variable that contains the value of the item. When assign, must cast to (void *). It's a generic void pointer so that it can be used to print any type of value specified by the type field */
-  menu_item_value_enum type;      /* What kind of variable is value pointing to. Only applies if value is not ITEM_NO_VALUE. STRING type of value must be 5 letters, for INTEGER type of values can be up to 4 digits, for DECIMAL type of values can be up to 3 digits */
+  ItemValueType_enum type;      /* What kind of variable is value pointing to. Only applies if value is not ITEM_NO_VALUE. STRING type of value must be 5 letters, for INTEGER type of values can be up to 4 digits, for DECIMAL type of values can be up to 3 digits */
   uint16_t maxValue;              /* Maximum possible value fo the item. Only applies if  type is VALUE_TYPE_INTEGER or VALUE_TYPE_DECIMAL */
   uint16_t minValue;              /* Minimum possible value fo the item. Only applies if  type is VALUE_TYPE_INTEGER or VALUE_TYPE_DECIMAL */
   char unit;                      /* Measurement unit of the item, that's gonna be displayed next to the value. Must be one character */
   uint8_t decimalPoint;           /* Indicates where is placed the decimal point. Only applies if  type is VALUE_TYPE_DECIMAL. Possible values are 1, and 2. */
-  function_pointer_type callback; /* Pointer to a callback that is called when the item is clicked in the menu. If no callback, then set to ITEM_NO_CALLBACK */
-} menu_item_type;
+  FunctionPointer_type callback; /* Pointer to a callback that is called when the item is clicked in the menu. If no callback, then set to ITEM_NO_CALLBACK */
+} MenuItem_type;
 
 
 typedef struct {
-  menu_item_type item[MAX_ITEMS];  /* Array of pointers to menu_item_type */
+  MenuItem_type item[MAX_ITEMS];      /* Array of pointers to menu_item_type */
   uint16_t lines;                     /* How many lines displayed at a time */
-} menu_type;
+} Menu_type;
 
 
 /*********************************************************************************************************************/
@@ -172,10 +182,10 @@ typedef struct {
 /*********************************************************************************************************************/
 uint16_t  addDeadBand(uint16_t val_pct, uint16_t deadBand_pct);
 uint16_t  saturateParamValue(uint16_t paramValue, uint16_t minValue, uint16_t maxValue);
-uint16_t  throttleCurve(uint16_t inputThrottle, EEPROM_stored_var_type storedVar);
+uint16_t  throttleCurve(uint16_t inputThrottle, StoredVar_type storedVar);
 void      throttleCalibration(uint16_t adcRaw);
-uint16_t  throttleAntiSpin(uint16_t throtSet, EEPROM_stored_var_type storedVar);
-void      showRunningDisplay(menu_state_enum currMenuState);
+uint16_t  throttleAntiSpin(uint16_t throtSet, StoredVar_type storedVar);
+void      showRunningDisplay(MenuState_enum currMenuState);
 void      showScreenCalibration(int16_t adcRaw);
 
 
