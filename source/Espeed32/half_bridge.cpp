@@ -38,7 +38,16 @@ HalfBridge half_bridge(ic_variant, io_pins, hw_conf); //  With all the required 
 /*********************************************************************************************************************/
 void HalfBridge_Setup()
 {
-  half_bridge.begin();
+  half_bridge.begin(); 
+  half_bridge.set_slew_rate(SLEW_RATE_LEVEL_7);
+  /** Set the dk experimental value to 50000 (previously measure for our setup) Also for set_ktis() could be called here. how to measure this dk experimentally? */
+  half_bridge.set_dk(50000);
+
+  HAL_InitHW();
+}
+void HalfBridge_SetupFabio()
+{
+  //half_bridge.begin(); DEBUG, removed, ttakes 10ms, used to calculate current resisto
   half_bridge.set_slew_rate(SLEW_RATE_LEVEL_7);
   /** Set the dk experimental value to 50000 (previously measure for our setup) Also for set_ktis() could be called here. how to measure this dk experimentally? */
   half_bridge.set_dk(50000);

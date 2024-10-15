@@ -113,12 +113,12 @@
 /*********************************************************************************************************************/
 /*------------------------------------------------Function Prototypes------------------------------------------------*/
 /*********************************************************************************************************************/
-void     HAL_InitHW();
-uint16_t HAL_ReadVoltageDivider(int AnalogInput, uint32_t rvfbl, uint32_t rvfbh);
-int16_t  HAL_ReadTriggerRaw();
-void     HALanalogWrite (int PWMchan, int value);
-void     HAL_PinSetup();
-uint16_t HAL_AdcRawToPct(uint16_t raw, uint16_t min, uint16_t max, bool reverse);
+uint16_t  HAL_ReadVoltageDivider(int AnalogInput, uint32_t rvfbl, uint32_t rvfbh);
+int16_t   HAL_ReadTriggerRaw();
+void      HAL_InitHW();
+void      HALanalogWrite (int PWMchan, int value);
+void      HAL_PinSetup();
+uint16_t  HAL_AdcRawToPct(uint16_t raw, uint16_t min, uint16_t max, bool reverse);
 
 void sound(note_t note,int ms);
 void offSound();

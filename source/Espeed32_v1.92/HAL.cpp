@@ -61,7 +61,8 @@ void HAL_InitHW()
   ledcAttachChannel(HB_IN_PIN, PWM_FREQ_DEFAULT*1000, THR_PWM_RES_BIT, THR_IN_PWM_CHAN);
   ledcAttachChannel(HB_INH_PIN, PWM_FREQ_DEFAULT*1000, THR_PWM_RES_BIT, THR_INH_PWM_CHAN);
 
-/* LEDC Chan to Group/Channel/Timer Mapping
+  /*
+ * LEDC Chan to Group/Channel/Timer Mapping
 ** ledc: 0  => Group: 0, Channel: 0, Timer: 0
 ** ledc: 1  => Group: 0, Channel: 1, Timer: 0
 ** ledc: 2  => Group: 0, Channel: 2, Timer: 1
@@ -79,7 +80,9 @@ void HAL_InitHW()
 ** ledc: 14 => Group: 1, Channel: 6, Timer: 3
 ** ledc: 15 => Group: 1, Channel: 7, Timer: 3
 */
+
 }
+
 
 void HALanalogWrite (const int PWMchan, int value)
 {
@@ -148,7 +151,6 @@ void HAL_PinSetup()
   pinMode(BUZZ_PIN, OUTPUT);      // Set BUZZ_PIN - pin as an output
   pinMode(BUTT_PIN, INPUT_PULLUP);// Set input pushbutton as input with pullup, so oyu con't need external resistor
   pinMode(ENCODER_BUTTON_PIN, INPUT_PULLUP);// Set input pushbutton as input with pullup, so oyu con't need external resistor
-  
 }
 
 /*

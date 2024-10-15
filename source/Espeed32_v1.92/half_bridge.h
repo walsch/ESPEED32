@@ -10,7 +10,6 @@
 /*------------------------------------------------Function Prototypes------------------------------------------------*/
 /*********************************************************************************************************************/
 void HalfBridge_Setup();
-void HalfBridge_SetupFabio();
 void HalfBridge_SetPwmDrag(uint8_t duty_pct, uint8_t drag_pct);
 void HalfBridge_Enable();
 void HalfBridge_TestMotor();

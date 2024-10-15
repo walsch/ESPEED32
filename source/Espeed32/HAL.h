@@ -23,12 +23,12 @@
 #define RVIFBH 10000UL   // [Ohm]Vin ADC resistor divider, upper resistor
 
 /********** ADC **********/
-#define THROTTLE_NORMALIZED   256
-#define THROTTLE_DEADBAND_PERC  3  /* [%]percent of throtthe that is considered 100% or 0%, when the wiper is close to the travel edges */
-#define THROTTLE_DEADBAND_NORM  ((THROTTLE_DEADBAND_PERC*THROTTLE_NORMALIZED)/100)
-#define THROTTLE_NOISE_PERC     2
-#define THROTTLE_NOISE_NORM      ((THROTTLE_NOISE_PERC*THROTTLE_NORMALIZED)/100)
-#define DERIVATE_MAX_ACTION_NORM (3*THROTTLE_NOISE_NORM)
+#define THROTTLE_NORMALIZED         256
+#define THROTTLE_DEADBAND_PERC      3  /* [%]percent of throtthe that is considered 100% or 0%, when the wiper is close to the travel edges */
+#define THROTTLE_DEADBAND_NORM      ((THROTTLE_DEADBAND_PERC*THROTTLE_NORMALIZED)/100)
+#define THROTTLE_NOISE_PERC         2
+#define THROTTLE_NOISE_NORM         ((THROTTLE_NOISE_PERC*THROTTLE_NORMALIZED)/100)
+#define DERIVATIVE_MAX_ACTION_NORM  (3*THROTTLE_NOISE_NORM)
 #define ACD_RESOLUTION_STEPS 4095
 
 #define VIN_CAL_SET 1200
@@ -72,7 +72,7 @@
 
 /******** OTHERS *********/
 #define KEY_SOUND_MS      50
-#define BUTT_PRESSED      0
+#define BUTTON_PRESSED    0
 
 /************************************************** PIN DEFINITIONS **************************************************/
 
@@ -113,12 +113,12 @@
 /*********************************************************************************************************************/
 /*------------------------------------------------Function Prototypes------------------------------------------------*/
 /*********************************************************************************************************************/
-uint16_t  HAL_ReadVoltageDivider(int AnalogInput, uint32_t rvfbl, uint32_t rvfbh);
-int16_t   HAL_ReadTriggerRaw();
-void      HAL_InitHW();
-void      HALanalogWrite (int PWMchan, int value);
-void      HAL_PinSetup();
-uint16_t  HAL_AdcRawToPct(uint16_t raw, uint16_t min, uint16_t max, bool reverse);
+void     HAL_InitHW();
+uint16_t HAL_ReadVoltageDivider(int AnalogInput, uint32_t rvfbl, uint32_t rvfbh);
+int16_t  HAL_ReadTriggerRaw();
+void     HALanalogWrite (int PWMchan, int value);
+void     HAL_PinSetup();
+uint16_t HAL_AdcRawToPct(uint16_t raw, uint16_t min, uint16_t max, bool reverse);
 
 void sound(note_t note,int ms);
 void offSound();
