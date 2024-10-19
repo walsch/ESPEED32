@@ -1,0 +1,21 @@
+Output: Gerber Files
+Type  : Gerber
+From  : Variant [[No Variations]] of Project [ESPEED32_V3_0.PrjPcb]
+   Generated File[ESPEED32_V3_0.GTO]
+   Generated File[ESPEED32_V3_0.GTP]
+   Generated File[ESPEED32_V3_0.GTS]
+   Generated File[ESPEED32_V3_0.GTL]
+   Generated File[ESPEED32_V3_0.GBL]
+   Generated File[ESPEED32_V3_0.GBS]
+   Generated File[ESPEED32_V3_0.GM1]
+   Generated File[ESPEED32_V3_0.GD1]
+   Generated File[ESPEED32_V3_0.GG1]
+   Generated File[ESPEED32_V3_0.RUL]
+   Generated File[ESPEED32_V3_0.EXTREP]
+   Generated File[ESPEED32_V3_0.REP]
+
+
+Files Generated   : 12
+Documents Printed : 0
+
+Finished Output Generation At 15:23:15 On 19/10/2024
