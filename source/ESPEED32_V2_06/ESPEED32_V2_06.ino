@@ -682,12 +682,13 @@ uint16_t gammaCorrect(uint16_t value, float gamma) {
   return (uint16_t)(correctedValue * 1000.0f);
 }
 
+
 #define ANTIS_SPEED_START_MIN 30 /*start anntispin only for throttle requests above ANTISPIN_PERC_START% */
-#define ANTIS_SPEED_START_MAX 70 /*start antispin only for throttle requests above ANTISPIN_PERC_START% */
+#define ANTIS_SPEED_START_MAX 65 /*start antispin only for throttle requests above ANTISPIN_PERC_START% */
  /**
  * Apply antispin calculation (according to antispin settings) applying a ramp to the output speed to prevent car drift
- * Antispin func. is called every 0,5ms. Input parameter is the requested Speed, which ranges from MinSPeed to MaxSPeed. 
- * the output is following the input (from MinSpeed to MaxSpeed), but with a maximum variation/time, so that if a step is applie at the input, 
+ * Antispin func. is called every 0,5ms. Input parameter is the requested Speed, which ranges from MinSpeed to MaxSpeed. 
+ * the output is following the input (from MinSpeed to MaxSpeed), but with a maximum variation/time, so that if a step is applied at the input, 
  * the output will produce a rampm till the final value.
  * The antispin time is the time taken from minSpeed to MaxSpeed, selected by the user in the global  variable g_storedVar.carParam[g_carSel].antiSpin in [ms]
  * Of course, the ramp time is proportional to the output swing amount. therefore if the requested speed step is only MaxSPeed/2 then 
@@ -735,7 +736,7 @@ uint16_t throttleAntiSpin3(uint16_t requestedSpeed)
         outputSpeed = requestedSpeed;
         lastOutputSpeedx1000 = outputSpeed * 1000;
       } 
-      else /* Requested speed is increasing (Car is accelerating) here apply antispin */
+      else /* Requested speed is increasing (Car is RACING) here apply antispin */
       {
         /* minspeed could be overrided by the antispinPercStart, so keep the highest */
         minSpeedTmp = max((uint16_t)g_storedVar.carParam[g_carSel].minSpeed, antispinPercStart);
@@ -766,6 +767,7 @@ uint16_t throttleAntiSpin3(uint16_t requestedSpeed)
 
   return outputSpeed;
 }
+
 
 /**
  * Accounts for a deadband in an input value.
